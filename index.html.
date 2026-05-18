@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root { --gold: #ffd700; --bg: #0b0b0b; --card: rgba(255,255,255,0.07); }
+        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; outline: none; user-select: none; }
+        body { background: var(--bg); color: #fff; font-family: 'Segoe UI', sans-serif; margin: 0; overflow: hidden; height: 100vh; position: relative; }
+        
+        /* АНИМАЦИЯ ПАДАЮЩИХ МОНЕТ */
+        #fx-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+        .coin { position: absolute; top: -50px; animation: fall linear infinite; font-size: 22px; }
+        @keyframes fall { to { transform: translateY(110vh) rotate(360deg); } }
+
+        /* ЗАСТАВКА (SPLASH SCREEN) */
+        #splash { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 5000; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: 0.8s ease; }
+        .loader { width: 45px; height: 45px; border: 3px solid #222; border-top: 3px solid var(--gold); border-radius: 50%; animation: spin 1s linear infinite; margin-top: 20px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ГЛАВНЫЙ ИНТЕРФЕЙС */
+        .ui { position: relative; z-index: 10; display: flex; flex-direction: column; height: 100vh; }
+        .header { height: 60px; display: flex; justify-content: space-between; align-items: center; padding: 0 15px; background: #000; border-bottom: 2px solid var(--gold); }
+        .main { text-align: center; padding-top: 50px; flex-grow: 1; }
+        .balance-box { font-size: 50px; font-weight: 900; color: var(--gold); text-shadow: 0 0 20px rgba(255,215,0,0.4); margin-top: 10px; }
+
+        /* ВЫЕЗЖАЮЩИЕ БОКОВЫЕ ПАНЕЛИ (МЕНЮ И НАСТРОЙКИ) */
+        .side { position: fixed; top: 0; width: 80%; height: 100%; background: #111; z-index: 1000; transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1); padding: 70px 20px; box-shadow: 0 0 40px #000; }
+        .side-l { left: -100%; border-right: 2px solid var(--gold); }
+        .side-r { right: -100%; border-left: 2px solid var(--gold); }
+        .side.active { left: 0; } .side-r.active { right: 0; }
+
+        /* НАКЛАДЫВАЮЩИЕСЯ ОКНА (ЦЕНТР) */
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.92); z-index: 2000; display: none; align-items: center; justify-content: center; opacity: 0; transition: 0.3s ease; padding: 20px; }
+        .modal.active { display: flex; opacity: 1; }
+        .m-content { background: #161616; width: 100%; max-width: 400px; border-radius: 25px; border: 1px solid var(--gold); padding: 25px; position: relative; box-shadow: 0 0 35px rgba(255,215,0,0.15); }
+
+        /* КНОПКИ */
+        .btn { background: var(--gold); color: #000; border: none; padding: 16px; border-radius: 14px; font-weight: 900; width: 100%; cursor: pointer; transition: 0.2s; font-size: 14px; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .btn:active { transform: scale(0.96); }
+        .btn-dark { background: #222; color: #fff; }
+        .card { background: var(--card); border-radius: 16px; padding: 15px; margin-bottom: 12px; border-left: 4px solid var(--gold); text-align: left; }
+        .inp { background: #000; border: 1px solid #333; color: #fff; padding: 14px; border-radius: 12px; width: 100%; text-align: center; margin: 10px 0; font-size: 18px; font-weight: bold; }
+
+        /* КОЛЕСО ФОРТУНЫ НА 8 СЕКТОРОВ */
+        .w-wrap { position: relative; width: 230px; height: 230px; margin: 15px auto; }
+        .w-body { width: 100%; height: 100%; border: 5px solid var(--gold); border-radius: 50%; position: relative; transition: transform 4s cubic-bezier(0.1, 0, 0.1, 1); background: #0b0b0b; overflow: hidden; }
+        .w-line { position: absolute; width: 2px; height: 50%; background: var(--gold); left: 50%; transform-origin: bottom center; opacity: 0.3; }
+        .w-sec { position: absolute; width: 100%; height: 100%; text-align: center; font-size: 10px; font-weight: 900; padding-top: 18px; color: var(--gold); }
+        .pointer { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); color: #ff3333; font-size: 32px; z-index: 10; }
+
+        /* ТОСТ-УВЕДОМЛЕНИЯ */
+        #toast { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); background: #fff; color: #000; padding: 14px 35px; border-radius: 30px; font-weight: 900; display: none; z-index: 9999; box-shadow: 0 5px 20px rgba(0,0,0,0.5); font-size: 14px; }
+    </style>
+</head>
+<body>
+
+    <div id="splash">
+        <h1 style="color:var(--gold); letter-spacing:6px; margin:0; font-size:32px;">GOLDEN BOT</h1>
+        <p style="opacity:0.4; margin:5px 0 0 0; font-size:12px; letter-spacing:2px;">ПРЕМИУМ КАЗИНО</p>
+        <div class="loader"></div>
+    </div>
+
+    <div id="fx-layer"></div>
+    <div id="toast"></div>
+
+    <div class="ui">
+        <div class="header">
+            <div onclick="toggleSide('side-l')" style="font-size:30px; cursor:pointer;">☰</div>
+            <div style="font-weight:900; letter-spacing:2px; color:var(--gold);">GOLDEN BOT</div>
+            <div onclick="toggleSide('side-r')" style="font-size:25px; cursor:pointer;">⚙️</div>
+        </div>
+
+        <div class="main">
+            <div style="opacity:0.5; font-size:12px; letter-spacing:1px;">ДОСТУПНЫЙ БАЛАНС</div>
+            <div class="balance-box"><span id="bal-main">100.00</span> <small id="cur-main" style="font-size:20px">UAH</small></div>
+            <div style="padding: 50px 25px;">
+                <button class="btn" style="height:70px; font-size:18px;" onclick="openMod('m-games')">🕹️ ИГРАТЬ СЕЙЧАС</button>
+                <button class="btn btn-dark" onclick="openMod('m-profile')">👤 ЛИЧНЫЙ КАБИНЕТ</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="side-l" class="side side-l">
+        <div class="card">
+            <h3 id="u-name" style="margin:0; color:var(--gold);">Загрузка...</h3>
+            <p style="opacity:0.5; font-size:12px; margin:5px 0 0 0;">ID: <span id="u-id">0000</span></p>
+        </div>
+        <button class="btn" onclick="openMod('m-profile')">👤 МОЙ ПРОФИЛЬ</button>
+        <button class="btn" onclick="openMod('m-games')">🎮 ВСЕ ИГРЫ</button>
+        <button class="btn" onclick="openMod('m-promo')">🎁 ПРОМОКОДЫ</button>
+        <button class="btn" onclick="openMod('m-support')">🆘 ПОДДЕРЖКА</button>
+        <button class="btn btn-dark" style="margin-top:20px;" onclick="toggleSide('side-l')">ЗАКРЫТЬ</button>
+    </div>
+
+    <div id="side-r" class="side side-r">
+        <h3 style="text-align:center; color:var(--gold); margin-top:0;">НАСТРОЙКИ</h3>
+        <p style="font-size:13px; opacity:0.6;">ВЫБЕРИТЕ ВАЛЮТУ:</p>
+        <button class="btn" onclick="changeCur('UAH')">🇺🇦 ГРИВНА (UAH)</button>
+        <button class="btn" onclick="changeCur('RUB')">🇷🇺 РУБЛЬ (RUB)</button>
+        <button class="btn btn-dark" style="margin-top:30px;" onclick="toggleSide('side-r')">ЗАКРЫТЬ</button>
+    </div>
+
+    <div id="m-profile" class="modal">
+        <div class="m-content">
+            <h2 style="text-align:center; color:var(--gold); margin-top:0;">ПРОФИЛЬ</h2>
+            <div class="card">
+                <div style="font-size:12px; opacity:0.6;">ВАШ БАЛАНС:</div>
+                <div style="font-size:24px; font-weight:900; color:var(--gold); margin-top:5px;">
+                    <span class="bal-txt">100.00</span> <span class="cur-txt">UAH</span>
+                </div>
+            </div>
+            <button class="btn" onclick="openMod('m-dep')">📥 ПОПОЛНЕНИЕ</button>
+            <button class="btn" onclick="openMod('m-wit')">📤 ВЫВОД СРЕДСТВ</button>
+            <button class="btn btn-dark" onclick="closeMod()">НАЗАД</button>
+        </div>
+    </div>
+
+    <div id="m-dep" class="modal">
+        <div class="m-content">
+            <h3 style="margin-top:0; color:var(--gold);">СПОСОБ ОПЛАТЫ</h3>
+            <button class="btn btn-dark" onclick="msg('Украина временно в ручном режиме через поддержку')">🇺🇦 УКРАИНА (UAH)</button>
+            <button class="btn btn-dark" onclick="msg('Россия временно в ручном режиме через поддержку')">🇷🇺 РОССИЯ (RUB)</button>
+            <button class="btn" style="background:#242424; color:var(--gold);" onclick="openMod('m-crypto')">💎 КРИПТОВАЛЮТА (TON)</button>
+            <button class="btn btn-dark" style="margin-top:15px;" onclick="openMod('m-profile')">НАЗАД</button>
+        </div>
+    </div>
+
+    <div id="m-crypto" class="modal">
+        <div class="m-content">
+            <h3 style="margin-top:0; color:var(--gold);">ОПЛАТА КРИПТОЙ</h3>
+            <div class="card" style="font-size:11px; word-break:break-all;">
+                НАШ TON КОШЕЛЕК:<br><br>
+                <b style="color:var(--gold); font-size:12px;">UQBXsDXoFMFD3752_K-87KOPztj5KbTrQq9irD32bUEAMQ3L</b>
+            </div>
+            <p style="font-size:12px; opacity:0.6;">Переведите TON и отправьте чек в поддержку для зачисления.</p>
+            <button class="btn" onclick="copyAddr()">📋 КОПИРОВАТЬ АДРЕС</button>
+            <button class="btn btn-dark" onclick="openMod('m-dep')">НАЗАД</button>
+        </div>
+    </div>
+
+    <div id="m-wit" class="modal">
+        <div class="m-content">
+            <h3 style="margin-top:0; color:var(--gold);">ВЫВОД СРЕДСТВ</h3>
+            <p style="font-size:13px; opacity:0.7;">Введите сумму и реквизиты. Заявка обрабатывается до 24 часов.</p>
+            <input type="number" class="inp" placeholder="Сумма вывода">
+            <input type="text" class="inp" placeholder="Номер карты или кошелька">
+            <button class="btn" onclick="msg('Заявка на вывод создана!')">ОТПРАВИТЬ ЗАЯВКУ</button>
+            <button class="btn btn-dark" onclick="openMod('m-profile')">НАЗАД</button>
+        </div>
+    </div>
+
+    <div id="m-games" class="modal">
+        <div class="m-content">
+            <h2 style="text-align:center; color:var(--gold); margin-top:0;">ИГРОВОЙ ЗАЛ</h2>
+            <button class="btn" onclick="openMod('g-slots')">🎰 ИГРОВОЙ АВТОМАТ</button>
+            <button class="btn" onclick="openMod('g-wheel')">🎡 КОЛЕСО ФОРТУНЫ</button>
+            <button class="btn btn-dark" style="margin-top:15px;" onclick="closeMod()">НАЗАД</button>
+        </div>
+    </div>
+
+    <div id="g-wheel" class="modal">
+        <div class="m-content">
+            <h3 style="text-align:center; margin-top:0; color:var(--gold);">🎡 КОЛЕСО ФОРТУНЫ</h3>
+            <div class="w-wrap">
+                <div class="pointer">▼</div>
+                <div id="w-obj" class="w-body">
+                    <div class="w-line" style="transform:rotate(45deg)"></div>
+                    <div class="w-line" style="transform:rotate(90deg)"></div>
+                    <div class="w-line" style="transform:rotate(135deg)"></div>
+                    <div class="w-line" style="transform:rotate(180deg)"></div>
+                    <div class="w-line" style="transform:rotate(225deg)"></div>
+                    <div class="w-line" style="transform:rotate(270deg)"></div>
+                    <div class="w-line" style="transform:rotate(315deg)"></div>
+                    <div class="w-sec" style="transform:rotate(22.5deg)">WIN x2</div>
+                    <div class="w-sec" style="transform:rotate(67.5deg)">ПУСТО</div>
+                    <div class="w-sec" style="transform:rotate(112.5deg)">WIN x2</div>
+                    <div class="w-sec" style="transform:rotate(157.5deg)">ПУСТО</div>
+                    <div class="w-sec" style="transform:rotate(202.5deg)">WIN x2</div>
+                    <div class="w-sec" style="transform:rotate(247.5deg)">ПУСТО</div>
+                    <div class="w-sec" style="transform:rotate(292.5deg)">WIN x2</div>
+                    <div class="w-sec" style="transform:rotate(337.5deg)">ПУСТО</div>
+                </div>
+            </div>
+            <div style="font-size:12px; opacity:0.6; text-align:center;">ВАША СТАВКА:</div>
+            <input type="number" id="w-bet" class="inp" value="10">
+            <button class="btn" id="w-btn" onclick="playW()">КРУТИТЬ</button>
+            <button class="btn btn-dark" onclick="openMod('m-games')">НАЗАД</button>
+        </div>
+    </div>
+
+    <div id="g-slots" class="modal">
+        <div class="m-content" style="text-align:center">
+            <h3 style="margin-top:0; color:var(--gold);">🎰 ИГРОВОЙ АВТОМАТ</h3>
+            <div id="s-res" style="font-size:45px; margin:20px; background:#000; border-radius:15px; padding:15px; border:2px dashed var(--gold); letter-spacing: 5px;">🎰🎰🎰</div>
+            <div style="font-size:12px; opacity:0.6;">ВАША СТАВКА:</div>
+            <input type="number" id="s-bet" class="inp" value="10">
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; margin-bottom:10px;">
+                <button class="btn" style="margin:0;" onclick="playS(2)">X2</button>
+                <button class="btn" style="margin:0;" onclick="playS(5)">X5</button>
+                <button class="btn" style="margin:0;" onclick="playS(10)">X10</button>
+            </div>
+            <button class="btn btn-dark" onclick="openMod('m-games')">НАЗАД</button>
+        </div>
+    </div>
+
+    <div id="m-promo" class="modal">
+        <div class="m-content">
+            <h3 style="margin-top:0; color:var(--gold);">АКТИВАЦИЯ ПРОМОКОДА</h3>
+            <input type="text" id="p-code" class="inp" placeholder="Введите код">
+            <button class="btn" onclick="msg('Промокод не существует или устарел')">АКТИВИРОВАТЬ</button>
+            <button class="btn btn-dark" onclick="closeMod()">НАЗАД</button>
+        </div>
+    </div>
+
+    <div id="m-support" class="modal">
+        <div class="m-content" style="text-align:center;">
+            <h3 style="margin-top:0; color:var(--gold);">ПОДДЕРЖКА ИГРОКОВ</h3>
+            <p style="font-size:14px; opacity:0.8; line-height:1.5;">Возникли проблемы с пополнением, выводом средств или багами? Напишите нашему администратору напрямую.</p>
+            <button class="btn" onclick="window.open('https://t.me/your_admin')">💬 СВЯЗАТЬСЯ В TG</button>
+            <button class="btn btn-dark" style="margin-top:10px;" onclick="closeMod()">НАЗАД</button>
+        </div>
+    </div>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        let balUah = parseFloat(localStorage.getItem('cas_bal')) || 100.0;
+        let cur = localStorage.getItem('cas_cur') || 'UAH';
+        const rate = 2.5; // 1 UAH = 2.5 RUB
+
+        function save() { localStorage.setItem('cas_bal', balUah); localStorage.setItem('cas_cur', cur); }
+        
+        function updateUI() {
+            let displayBal = (cur === 'UAH') ? balUah : balUah * rate;
+            document.getElementById('bal-main').innerText = displayBal.toFixed(2);
+            document.getElementById('cur-main').innerText = cur;
+            document.querySelectorAll('.bal-txt').forEach(e => e.innerText = displayBal.toFixed(2));
+            document.querySelectorAll('.cur-txt').forEach(e => e.innerText = cur);
+        }
+
+        function toggleSide(id) { document.getElementById(id).classList.toggle('active'); }
+        
+        function openMod(id) {
+            closeMod();
+            let m = document.getElementById(id);
+            m.style.display = 'flex';
+            setTimeout(() => m.classList.add('active'), 10);
+            document.getElementById('side-l').classList.remove('active');
+            document.getElementById('side-r').classList.remove('active');
+        }
+
+        function closeMod() {
+            document.querySelectorAll('.modal').forEach(m => {
+                m.classList.remove('active');
+                setTimeout(() => m.style.display = 'none', 300);
+            });
+        }
+
+        function changeCur(c) { cur = c; save(); updateUI(); toggleSide('side-r'); msg("Валюта изменена на " + c); spawnCoins(); }
+
+        function msg(t) {
+            let b = document.getElementById('toast'); b.innerText = t; b.style.display = 'block';
+            setTimeout(() => b.style.display = 'none', 2000);
+        }
+
+        function copyAddr() {
+            navigator.clipboard.writeText('UQBXsDXoFMFD3752_K-87KOPztj5KbTrQq9irD32bUEAMQ3L');
+            msg('Адрес скопирован в буфер!');
+        }
+
+        function spawnCoins() {
+            const container = document.getElementById('fx-layer');
+            for(let i=0; i<12; i++) {
+                setTimeout(() => {
+                    const c = document.createElement('div');
+                    c.className = 'coin'; c.innerText = '🪙';
+                    c.style.left = Math.random() * 100 + 'vw';
+                    c.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                    container.appendChild(c);
+                    setTimeout(() => c.remove(), 3500);
+                }, i * 300);
+            }
+        }
+
+        function playW() {
+            let betRaw = parseFloat(document.getElementById('w-bet').value);
+            let betUah = (cur === 'UAH') ? betRaw : betRaw / rate;
+            if(isNaN(betRaw) || betRaw <= 0) return msg("Введите корректную ставку");
+            if(balUah < betUah) return msg("Недостаточно средств!");
+            
+            balUah -= betUah; updateUI(); save();
+            let btn = document.getElementById('w-btn'); btn.disabled = true;
+
+            let win = Math.random() < 0.45; 
+            let deg = 3600 + (win ? 22.5 : 67.5);
+            document.getElementById('w-obj').style.transform = `rotate(${deg}deg)`;
+
+            setTimeout(() => {
+                btn.disabled = false;
+                if(win) { balUah += betUah * 2; msg("ВЫИГРЫШ X2! 🎉"); spawnCoins(); } else { msg("ПРОИГРЫШ 😢"); }
+                updateUI(); save();
+                document.getElementById('w-obj').style.transition = 'none';
+                document.getElementById('w-obj').style.transform = `rotate(${deg%360}deg)`;
+                setTimeout(() => document.getElementById('w-obj').style.transition = 'transform 4s cubic-bezier(0.1, 0, 0.1, 1)', 50);
+            }, 4100);
+        }
+
+        function playS(mult) {
+            let betRaw = parseFloat(document.getElementById('s-bet').value);
+            let betUah = (cur === 'UAH') ? betRaw : betRaw / rate;
+            if(isNaN(betRaw) || betRaw <= 0) return msg("Введите ставку");
+            if(balUah < betUah) return msg("Недостаточно средств!");
+            
+            balUah -= betUah; updateUI(); save();
+
+            let i = 0; const syms = ['💎','🍒','7️⃣','🔔','🍀'];
+            const t = setInterval(() => {
+                document.getElementById('s-res').innerText = syms[Math.floor(Math.random()*5)]+syms[Math.floor(Math.random()*5)]+syms[Math.floor(Math.random()*5)];
+                if(++i > 14) {
+                    clearInterval(t);
+                    let chance = mult === 2 ? 0.35 : (mult === 5 ? 0.15 : 0.07);
+                    let win = Math.random() < chance;
+
+                    if(win) { 
+                        balUah += betUah * mult; 
+                        msg(`ПОБЕДА X${mult}! 🔥`); 
+                        spawnCoins(); 
+                    } else { 
+                        msg("НЕУДАЧА 💥"); 
+                    }
+                    updateUI(); save();
+                }
+            }, 100);
+        }
+
+        window.onload = () => {
+            tg.expand();
+            document.getElementById('u-name').innerText = tg.initDataUnsafe.user?.first_name || "Игрок";
+            document.getElementById('u-id').innerText = tg.initDataUnsafe.user?.id || "777777";
+            updateUI();
+            spawnCoins();
+            setTimeout(() => {
+                let s = document.getElementById('splash');
+                s.style.opacity
